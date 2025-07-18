@@ -1,10 +1,10 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Listing, Booking, Review
+from .models import Listing, Booking
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """Serializer for User model"""
+    """Serializer for User model - used in nested relationships"""
     
     class Meta:
         model = User
@@ -39,28 +39,16 @@ class ListingSerializer(serializers.ModelSerializer):
         return obj.get_total_reviews()
     
     def validate_price_per_night(self, value):
-        """Validate price per night"""
+        """Validate price per night is positive"""
         if value <= 0:
             raise serializers.ValidationError("Price per night must be greater than 0.")
         return value
     
     def validate_max_guests(self, value):
-        """Validate max guests"""
+        """Validate max guests is at least 1"""
         if value <= 0:
             raise serializers.ValidationError("Max guests must be at least 1.")
         return value
-
-
-class ListingCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating listings"""
-    
-    class Meta:
-        model = Listing
-        fields = [
-            'title', 'description', 'location', 'price_per_night', 
-            'max_guests', 'bedrooms', 'bathrooms', 'wifi', 'parking', 
-            'pool', 'kitchen', 'air_conditioning', 'is_available', 'category'
-        ]
     
     def create(self, validated_data):
         """Create a new listing with the current user as host"""
@@ -158,109 +146,5 @@ class BookingSerializer(serializers.ModelSerializer):
             check_out = validated_data['check_out_date']
             duration = (check_out - check_in).days
             validated_data['total_price'] = listing.price_per_night * duration
-        
-        return super().create(validated_data)
-
-
-class BookingCreateSerializer(serializers.ModelSerializer):
-    """Simplified serializer for creating bookings"""
-    
-    class Meta:
-        model = Booking
-        fields = [
-            'listing', 'check_in_date', 'check_out_date', 
-            'num_guests', 'special_requests'
-        ]
-    
-    def create(self, validated_data):
-        """Create booking with calculated total price"""
-        request = self.context.get('request')
-        if request and hasattr(request, 'user'):
-            validated_data['user'] = request.user
-        
-        # Calculate total price
-        listing = validated_data['listing']
-        check_in = validated_data['check_in_date']
-        check_out = validated_data['check_out_date']
-        duration = (check_out - check_in).days
-        validated_data['total_price'] = listing.price_per_night * duration
-        
-        return super().create(validated_data)
-
-
-class ReviewSerializer(serializers.ModelSerializer):
-    """Serializer for Review model"""
-    
-    user = UserSerializer(read_only=True)
-    listing = ListingSerializer(read_only=True)
-    
-    class Meta:
-        model = Review
-        fields = [
-            'review_id', 'listing', 'user', 'rating', 'comment',
-            'created_at', 'updated_at'
-        ]
-        read_only_fields = ['review_id', 'user', 'created_at', 'updated_at']
-    
-    def validate_rating(self, value):
-        """Validate rating range"""
-        if value < 1 or value > 5:
-            raise serializers.ValidationError("Rating must be between 1 and 5.")
-        return value
-    
-    def validate(self, data):
-        """Validate review constraints"""
-        request = self.context.get('request')
-        if request and hasattr(request, 'user'):
-            user = request.user
-            listing = data.get('listing')
-            
-            if listing:
-                # Check if user has completed a booking for this listing
-                completed_bookings = Booking.objects.filter(
-                    user=user,
-                    listing=listing,
-                    status='completed'
-                )
-                
-                if not completed_bookings.exists():
-                    raise serializers.ValidationError(
-                        "You can only review listings you have booked and completed."
-                    )
-                
-                # Check if user has already reviewed this listing
-                existing_review = Review.objects.filter(
-                    user=user,
-                    listing=listing
-                ).exists()
-                
-                if existing_review:
-                    raise serializers.ValidationError(
-                        "You have already reviewed this listing."
-                    )
-        
-        return data
-    
-    def create(self, validated_data):
-        """Create a new review"""
-        request = self.context.get('request')
-        if request and hasattr(request, 'user'):
-            validated_data['user'] = request.user
-        
-        return super().create(validated_data)
-
-
-class ReviewCreateSerializer(serializers.ModelSerializer):
-    """Simplified serializer for creating reviews"""
-    
-    class Meta:
-        model = Review
-        fields = ['listing', 'rating', 'comment']
-    
-    def create(self, validated_data):
-        """Create review with current user"""
-        request = self.context.get('request')
-        if request and hasattr(request, 'user'):
-            validated_data['user'] = request.user
         
         return super().create(validated_data)
